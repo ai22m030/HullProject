@@ -19,7 +19,7 @@ int convex::Hull::hull_start(std::list<SDL_Point>& point_list, convex::Hull::Poi
     int i = 0, index = 0, position = -1;
     bool save;
 
-    for(auto & it : point_list) {
+    for(auto &it : point_list) {
         save = false;
 
         if(position == -1) {

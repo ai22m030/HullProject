@@ -33,16 +33,19 @@ namespace convex {
                 return a.x < b.x;
             }
         };
+
         struct PointsOrientation
         {
             SDL_Point* a;
             SDL_Point* b;
             PointPosition position;
+
             PointsOrientation(SDL_Point& a, SDL_Point& b, PointPosition position1){
                 this->a = &a;
                 this->b = &b;
                 this->position = position1;
             }
+
             bool operator()(SDL_Point point) const {
                 if((point.x == a->x && point.y == a->y) ||
                     (point.x == b->x && point.y == b->y))
@@ -51,6 +54,7 @@ namespace convex {
                 return CALC_ORIENTATION_PTR(a, b, point) != position;
             }
         };
+
         explicit Hull(std::list<SDL_Point>& point_list);
         std::list<SDL_Point>& divide_conquer();
 
