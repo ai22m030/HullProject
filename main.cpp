@@ -108,7 +108,9 @@ public:
 
         if(points.size() == 1 || points.size() == 2) {
             list->insert(list->end(), points.begin(), points.end());
-            delete &points;
+
+            if(this->point_list->size() != points.size())
+                delete &points;
 
             return list;
         }
