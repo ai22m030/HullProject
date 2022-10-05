@@ -75,6 +75,17 @@ public:
     static list<SDL_Point>* merge(list<SDL_Point>& left_hull, list<SDL_Point>& right_hull) {
         auto* list = new std::list<SDL_Point>;
 
+        /**
+         * TODO
+         *
+         * Implement merging here
+         *
+         * 1.Step search rightest point in left_hull
+         * 2.Step search leftest point in right_hull
+         * 3.Build upper and lower tangents
+         * 4.Remove points between tangents
+         * 5.Merge hulls to list / delete right and left hull
+         */
         list->insert(list->end(), left_hull.begin(), left_hull.end());
         list->insert(list->end(), right_hull.begin(), right_hull.end());
 
