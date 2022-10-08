@@ -57,12 +57,12 @@ namespace convex {
 
         explicit Hull(std::list<SDL_Point>& point_list);
         std::list<SDL_Point>& divide_conquer();
+        static int hull_start(std::list<SDL_Point>& point_list, PointPosition pos);
 
     private:
         std::list<SDL_Point>* point_list;
         std::list<SDL_Point>& divide(std::list<SDL_Point> &points);
         std::list<SDL_Point>& merge(std::list<SDL_Point> &left_hull, std::list<SDL_Point> &right_hull);
         static std::list<SDL_Point>& conquer(std::list<SDL_Point> &points);
-        static int hull_start(std::list<SDL_Point>& point_list, PointPosition pos);
     };
 }

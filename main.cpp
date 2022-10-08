@@ -7,9 +7,12 @@
 #include <semaphore>
 #include "Hull.h"
 
+#define ORIENT(a, b, c) ((b.y - a.y) * (c.x - b.x) - (c.y - b.y) * (b.x - a.x))
+
 using namespace std;
 
 const int POINTS_COUNT = 11;
+const int DRAW_DELAY = 200;
 const int SCREEN_WIDTH = 640;
 const int SCREEN_HEIGHT = 480;
 
@@ -23,9 +26,50 @@ std::binary_semaphore
         convexSignalMainToThread{0},
         convexSignalThreadToMain{0};
 
+inline bool operator==(SDL_Point const &a, SDL_Point const &b)
+{
+    return a.x == b.x && a.y == b.y;
+}
+
+inline bool operator!=(SDL_Point const &a, SDL_Point const &b)
+{
+    return !(a == b);
+}
+
 class Calculator {
 public:
-    const std::list<SDL_Point>* const point_list;
+    enum PointPosition {
+        RIGHT,
+        LEFT
+    };
+    struct PointsOrientation {
+        SDL_Point *a;
+        SDL_Point *b;
+        PointPosition position;
+
+        PointsOrientation(SDL_Point& a, SDL_Point& b, PointPosition position1) {
+            this->a = &a;
+            this->b = &b;
+            this->position = position1;
+        }
+
+        bool operator()(SDL_Point point) const {
+            if ((point.x == a->x && point.y == a->y) ||
+                (point.x == b->x && point.y == b->y))
+                return false;
+
+            int orient = ORIENT((*a), (*b), point);
+
+            if(orient > 0)
+                return this->position != PointPosition::LEFT;
+            else if(orient < 0)
+                return this->position != PointPosition::RIGHT;
+            else
+                return false;
+        }
+    };
+
+    const list<SDL_Point>* const point_list;
 
     explicit Calculator(list<SDL_Point>& point_list): point_list(&point_list) {
         point_list.sort(convex::Hull::PointComparator());
@@ -75,6 +119,332 @@ public:
     static list<SDL_Point>* merge(list<SDL_Point>& left_hull, list<SDL_Point>& right_hull) {
         auto* list = new std::list<SDL_Point>;
 
+        auto left_hull_start = left_hull.begin();
+        auto right_hull_start = right_hull.begin();
+
+        std::list<SDL_Point> rm_left_hull;
+        std::list<SDL_Point> rm_right_hull;
+
+        std::advance(left_hull_start, convex::Hull::hull_start(left_hull, convex::Hull::MOST_RIGHT));
+        std::advance(right_hull_start, convex::Hull::hull_start(right_hull, convex::Hull::MOST_LEFT));
+
+        auto cp_left_hull_start = left_hull_start;
+        auto cp_right_hull_start = right_hull_start;
+
+        while(!(std::any_of(left_hull.begin(),
+                            left_hull.end(),
+                            PointsOrientation((SDL_Point&)(*left_hull_start),
+                                              (SDL_Point&)(*right_hull_start),
+                                              PointPosition::RIGHT)) &&
+                std::any_of(right_hull.begin(),
+                            right_hull.end(),
+                            PointsOrientation((SDL_Point&)(*left_hull_start),
+                                              (SDL_Point&)(*right_hull_start),
+                                              PointPosition::RIGHT)))) {
+            while(!std::any_of(left_hull.begin(),
+                               left_hull.end(),
+                               PointsOrientation((SDL_Point&)(*left_hull_start),
+                                                 (SDL_Point&)(*right_hull_start),
+                                                 PointPosition::RIGHT))) {
+                rm_left_hull.insert(rm_left_hull.end(), *left_hull_start);
+                if(left_hull_start == left_hull.begin())
+                    left_hull_start = --(left_hull.end());
+                else
+                    left_hull_start--;
+            }
+
+            while(!std::any_of(right_hull.begin(),
+                               right_hull.end(),
+                               PointsOrientation((SDL_Point&)(*left_hull_start),
+                                                 (SDL_Point&)(*right_hull_start),
+                                                 PointPosition::RIGHT))) {
+                rm_right_hull.insert(rm_right_hull.end(), *right_hull_start);
+                if(right_hull_start == --(right_hull.end()))
+                    right_hull_start = right_hull.begin();
+                else
+                    right_hull_start++;
+            }
+        }
+
+        auto upper_tangent_left = left_hull_start;
+        auto upper_tangent_right = right_hull_start;
+
+        left_hull_start = cp_left_hull_start;
+        right_hull_start = cp_right_hull_start;
+
+        while(!(std::any_of(left_hull.begin(),
+                            left_hull.end(),
+                            PointsOrientation((SDL_Point&)(*left_hull_start),
+                                              (SDL_Point&)(*right_hull_start),
+                                              PointPosition::LEFT)) &&
+                std::any_of(right_hull.begin(),
+                            right_hull.end(),
+                            PointsOrientation((SDL_Point&)(*left_hull_start),
+                                              (SDL_Point&)(*right_hull_start),
+                                              PointPosition::LEFT)))) {
+            while(!std::any_of(left_hull.begin(),
+                               left_hull.end(),
+                               PointsOrientation((SDL_Point&)(*left_hull_start),
+                                                 (SDL_Point&)(*right_hull_start),
+                                                 PointPosition::LEFT))) {
+                rm_left_hull.insert(rm_left_hull.end(), *left_hull_start);
+                if(left_hull_start == --(left_hull.end()))
+                    left_hull_start = left_hull.begin();
+                else
+                    left_hull_start++;
+            }
+
+            while(!std::any_of(right_hull.begin(),
+                               right_hull.end(),
+                               PointsOrientation((SDL_Point&)(*left_hull_start),
+                                                 (SDL_Point&)(*right_hull_start),
+                                                 PointPosition::LEFT))) {
+                rm_right_hull.insert(rm_right_hull.end(), *right_hull_start);
+                if(right_hull_start == right_hull.begin())
+                    right_hull_start = --(right_hull.end());
+                else
+                    right_hull_start--;
+            }
+        }
+
+        auto lower_tangent_left = left_hull_start;
+        auto lower_tangent_right = right_hull_start;
+
+        for(auto rm_p : rm_left_hull)
+            if(*upper_tangent_left != rm_p && *lower_tangent_left != rm_p)
+                left_hull.remove(rm_p);
+
+        for(auto rm_p : rm_right_hull)
+            if(*upper_tangent_right != rm_p && *lower_tangent_right != rm_p)
+                right_hull.remove(rm_p);
+
+        left_hull_start = left_hull.begin();
+
+        while(*left_hull_start != *lower_tangent_left)
+            left_hull_start++;
+
+        list->insert(list->end(), *left_hull_start);
+        if(left_hull_start == --left_hull.end())
+            left_hull_start = left_hull.begin();
+        else
+            left_hull_start++;
+
+        while (*left_hull_start != *lower_tangent_left){
+            list->insert(list->end(), *left_hull_start);
+            if(left_hull_start == --left_hull.end())
+                left_hull_start = left_hull.begin();
+            else
+                left_hull_start++;
+        }
+
+        right_hull_start = right_hull.begin();
+
+        while (*right_hull_start != *upper_tangent_right)
+            right_hull_start++;
+
+        list->insert(list->end(), *right_hull_start);
+        if(right_hull_start == --right_hull.end())
+            right_hull_start = right_hull.begin();
+        else
+            right_hull_start++;
+
+        while(*right_hull_start != *upper_tangent_right) {
+            list->insert(list->end(), *right_hull_start);
+            if(right_hull_start == --right_hull.end())
+                right_hull_start = right_hull.begin();
+            else
+                right_hull_start++;
+        }
+
+        /*
+
+        while(*left_hull_start != *upper_tangent_left) {
+            list->insert(list->end(), *left_hull_start);
+            left_hull_start++;
+        }
+
+        list->insert(list->end(), *upper_tangent_left);
+        list->insert(list->end(), *upper_tangent_right);
+
+        right_hull_start = right_hull.begin();
+
+        while(*right_hull_start != *upper_tangent_right)
+            right_hull_start++;
+
+        if(right_hull_start == --right_hull.end())
+            right_hull_start = right_hull.begin();
+        else
+            right_hull_start++;
+
+        while(*right_hull_start != *upper_tangent_right) {
+            list->insert(list->begin(), *right_hull_start);
+            if(right_hull_start == --right_hull.end())
+                right_hull_start = right_hull.begin();
+            else
+                right_hull_start++;
+        }
+
+        while (left_hull_start != --left_hull.end()) {
+            left_hull_start++;
+            list->insert(list->end(), *left_hull_start);
+        }
+
+        //list->insert(list->end(), left_hull.begin(), left_hull.end());
+        //list->insert(list->end(), right_hull.begin(), right_hull.end());
+
+        while(lower_tangent_left != upper_tangent_left) {
+            list->insert(list->end(), *lower_tangent_left);
+            if(lower_tangent_left == --left_hull.end())
+                lower_tangent_left = left_hull.begin();
+            else
+                lower_tangent_left++;
+        }
+
+        list->insert(list->end(), *lower_tangent_left);
+
+        while (upper_tangent_right != lower_tangent_right) {
+            list->insert(list->end(), *upper_tangent_right);
+            if(upper_tangent_right == --right_hull.end())
+                upper_tangent_right = right_hull.begin();
+            else
+                upper_tangent_right++;
+        }
+
+        list->insert(list->end(), *upper_tangent_right);
+
+        std::advance(left_hull_start, convex::Hull::hull_start(left_hull, convex::Hull::MOST_LEFT));
+
+        while(left_hull_start != upper_tangent_left) {
+            list->insert(list->end(), *left_hull_start);
+            if(left_hull_start == --left_hull.end())
+                left_hull_start = left_hull.begin();
+            else
+                left_hull_start++;
+        }
+
+        list->insert(list->end(), *upper_tangent_left);
+
+        while(upper_tangent_right != lower_tangent_right) {
+            list->insert(list->end(), *upper_tangent_right);
+            if(upper_tangent_right == --right_hull.end())
+                upper_tangent_right = right_hull.begin();
+            else
+                upper_tangent_right++;
+        }
+
+        list->insert(list->end(), *upper_tangent_right);
+
+        std::advance(left_hull_start, convex::Hull::hull_start(left_hull, convex::Hull::MOST_LEFT));
+
+        while(lower_tangent_left != left_hull_start) {
+            list->insert(list->end(), *lower_tangent_left);
+            if(lower_tangent_left == --left_hull.end())
+                lower_tangent_left = left_hull.begin();
+            else
+                lower_tangent_left++;
+        }
+
+        //
+
+        auto cp_lower_tangent_left = lower_tangent_left;
+        auto cp_lower_tangent_right = lower_tangent_right;
+        list->insert(list->end(), *upper_tangent_left);
+        list->insert(list->end(), *upper_tangent_right);
+
+        if(upper_tangent_right == --right_hull.end())
+            upper_tangent_right = right_hull.begin();
+        else
+            upper_tangent_right++;
+
+        while (lower_tangent_right != upper_tangent_right) {
+            list->insert(list->end(), *upper_tangent_right);
+            if(upper_tangent_right == --right_hull.end())
+                upper_tangent_right = right_hull.begin();
+            else
+                upper_tangent_right++;
+        }
+
+        list->insert(list->end(), *cp_lower_tangent_right);
+        list->insert(list->end(), *cp_lower_tangent_left);
+
+        if(lower_tangent_left == --left_hull.end())
+            lower_tangent_left = left_hull.begin();
+        else
+            lower_tangent_left++;
+
+        while (lower_tangent_left != upper_tangent_left) {
+            list->insert(list->end(), *lower_tangent_left);
+            if(lower_tangent_left == --left_hull.end())
+                lower_tangent_left = left_hull.begin();
+            else
+                lower_tangent_left++;
+        }
+
+        //
+
+        if(lower_tangent_left == upper_tangent_left)
+            list->insert(list->end(), *lower_tangent_left);
+        else {
+            auto left_start = lower_tangent_left;
+            while (left_start != upper_tangent_left) {
+                list->insert(list->end(), *left_start);
+                if(left_start == --left_hull.end())
+                    left_start = left_hull.begin();
+                else
+                    left_start++;
+            }
+            list->insert(list->end(), *upper_tangent_left);
+        }
+
+        if(lower_tangent_right == upper_tangent_right)
+            list->insert(list->end(), *lower_tangent_right);
+        else {
+            auto right_start = lower_tangent_right;
+            while (right_start != upper_tangent_right) {
+                list->insert(list->end(), *right_start);
+                if(right_start == right_hull.begin())
+                    right_start = --right_hull.end();
+                else
+                    right_start--;
+            }
+            list->insert(list->end(), *upper_tangent_right);
+        }
+
+        //
+
+        auto left_start = left_hull.begin();
+        while (left_start != lower_tangent_left) {
+            if(left_start == --left_hull.end())
+                left_start = left_hull.begin();
+            else
+                left_start++;
+        }
+
+        while (left_start != upper_tangent_left) {
+            list->insert(list->end(), *left_start);
+            if(left_start == --left_hull.end())
+                left_start = left_hull.begin();
+            else
+                left_start++;
+        }
+
+        auto right_start = --right_hull.end();
+        while (right_start != upper_tangent_right) {
+            if(right_start == right_hull.begin())
+                right_start = --right_hull.end();
+            else
+                right_start--;
+        }
+
+        while (right_start != lower_tangent_right) {
+            list->insert(list->end(), *right_start);
+            if(right_start == right_hull.begin())
+                right_start = --right_hull.end();
+            else
+                right_start--;
+        }
+         */
+
         /**
          * TODO
          *
@@ -86,21 +456,17 @@ public:
          * 4.Remove points between tangents
          * 5.Merge hulls to list / delete right and left hull
          */
-        list->insert(list->end(), left_hull.begin(), left_hull.end());
-        list->insert(list->end(), right_hull.begin(), right_hull.end());
+        //list->insert(list->end(), left_hull.begin(), left_hull.end());
+        //list->insert(list->end(), right_hull.begin(), right_hull.end());
 
-        global_list.insert(global_list.end(), left_hull.begin(), left_hull.end());
-        global_list.insert(global_list.end(), right_hull.begin(), right_hull.end());
+        //global_list.clear();
+        //global_list.insert(global_list.end(), left_hull.begin(), left_hull.end());
+        //global_list.insert(global_list.end(), right_hull.begin(), right_hull.end());
 
         delete &left_hull;
         delete &right_hull;
 
         return list;
-    }
-
-    static int orientation(SDL_Point p_line_1, SDL_Point p_line_2, SDL_Point p_check) {
-        return ((p_line_1.x - p_check.x) * (p_line_2.y - p_check.y)) -
-            ((p_line_1.y - p_check.y) * (p_line_2.x - p_check.x));
     }
 
     list<SDL_Point>* brute(list<SDL_Point>& points) const {
@@ -123,14 +489,20 @@ public:
             i++;
         }
 
-        auto orient = Calculator::orientation(point[0],point[1],point[2]);
+        int orient = ORIENT(point[0],point[1],point[2]);
 
         if(orient < 0) {
+            list->insert(list->end(), point[0]);
             list->insert(list->end(), point[2]);
+            list->insert(list->end(), point[1]);
+        } else if(orient > 0) {
             list->insert(list->end(), point[0]);
             list->insert(list->end(), point[1]);
-        } else
-            list->insert(list->end(), points.begin(), points.end());
+            list->insert(list->end(), point[2]);
+        } else {
+            list->insert(list->end(), point[0]);
+            list->insert(list->end(), point[2]);
+        }
 
         if(this->point_list->size() != points.size())
             delete &points;
@@ -149,10 +521,13 @@ bool comparePoints(SDL_Point a, SDL_Point b) {
 void calculator_t(list<SDL_Point> init_list) {
     convexSignalMainToThread.acquire();
     auto c = Calculator(init_list);
+    //auto c = customLib::HullCalculator(init_list);
 
+    //c.start();
     c.calc();
 
-    std::this_thread::sleep_for(3s);
+
+    //std::this_thread::sleep_for(3s);
     convexSignalThreadToMain.release();
 }
 
@@ -200,10 +575,11 @@ int main() {
 
     thread t1(calculator_t, init_list);
 
-
+    /*
     for(auto p : init_list) {
         std::cout << p.x << ", " << p.y << std::endl;
     }
+     */
 
     convexSignalMainToThread.release();
 
@@ -211,10 +587,12 @@ int main() {
 
     //delete final_list;
 
+    for(auto p : *final_list) {
+        std::cout << p.x << ", " << p.y << std::endl;
+    }
+
     auto it_end = final_list->begin();
     it_end++;
-
-    t1.join();
 
     if (SDL_Init(SDL_INIT_EVERYTHING) == 0) {
         if (SDL_CreateWindowAndRenderer(SCREEN_WIDTH, SCREEN_HEIGHT,
@@ -236,7 +614,7 @@ int main() {
 
                 if(first_run > 0) {
                     SDL_RenderPresent(renderer);
-                    SDL_Delay(300);
+                    SDL_Delay(DRAW_DELAY);
                     first_run--;
                 } else if(it_end != final_list->end()) {
                     SDL_SetRenderDrawColor(renderer, 0, 0, 0, SDL_ALPHA_OPAQUE);
@@ -254,9 +632,12 @@ int main() {
                 } else if(it_end == final_list->end() && first_run != -1) {
                     SDL_SetRenderDrawColor(renderer, 255, 255, 255, SDL_ALPHA_OPAQUE);
                     SDL_RenderClear(renderer);
-                    SDL_SetRenderDrawColor(renderer, 0, 0, 0, SDL_ALPHA_OPAQUE);
+                    SDL_SetRenderDrawColor(renderer, 255, 0, 0, SDL_ALPHA_OPAQUE);
                     SDL_RenderSetScale(renderer, 6.0f, 4.0f);
                     SDL_RenderDrawPoints(renderer, points, POINTS_COUNT);
+                    SDL_SetRenderDrawColor(renderer, 0, 0, 0, SDL_ALPHA_OPAQUE);
+                    for(auto p : *final_list)
+                        SDL_RenderDrawPoint(renderer, p.x, p.y);
                     SDL_RenderPresent(renderer);
                     first_run = -1;
                 }
@@ -279,6 +660,8 @@ int main() {
         }
     } else
         std::cout << "Failed to init SDL : " << SDL_GetError();
+
+    t1.join();
 
     delete final_list;
 
