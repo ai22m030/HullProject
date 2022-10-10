@@ -211,7 +211,6 @@ xy =xy[xy[:, 0].argsort()]
 
 t = Timer(lambda: convex_hull(xy,0))
 #Save the timerequired to the file "o_notationdata.txt"
-mat = np.matrix([[1,2],[4,5],[7,8]])
 matrix = np.loadtxt('./python_solution/o_notation_data.txt')
 #Find the current time value for a specific k (note that k is stored in the first column)
 k_index = np.where(matrix[:,0] == k)[0]
