@@ -204,8 +204,8 @@ def convex_hull(xy,recursion_level):
     return hull_merge_it, False
 
 #Input coordinationen
-k = 11
-# for k in range(101,1001):
+k = 100
+# for k in range(1001,10001):
 xy = generate_k_xy(k)
 xy =xy[xy[:, 0].argsort()]
 
