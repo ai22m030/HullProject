@@ -1,3 +1,4 @@
 # Project exclude paths
 /cmake-build-debug/
 .idea
+python_solution/png_images/*.png

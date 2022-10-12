@@ -224,8 +224,11 @@ with open('./python_solution/o_notation_data.txt', 'wb') as f:
 
 
 # Plot everything
+import imageio
+
 plt.figure()
 plt.scatter(xy[:,0],xy[:,1], color='grey')
+
 
 for keys in merge_hulls:
     fig ,ax = plt.subplots(1,1)
@@ -233,6 +236,7 @@ for keys in merge_hulls:
         hulls_temp = np.vstack((hulls,hulls[0]))
         plt.scatter(xy[:,0],xy[:,1],color ='grey')
         ax.plot(hulls_temp[:,0],hulls_temp[:,1])
+        plt.savefig(f'./python_solution/png_images/line-{keys}.png')
 
 
 plt.show()
