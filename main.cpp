@@ -2,10 +2,6 @@
 #include <random>
 #include <SDL.h>
 #include <list>
-#include <chrono>
-#include <thread>
-#include <semaphore>
-#include "Hull.h"
 
 #define ORIENT(a, b, c) ((b.y - a.y) * (c.x - b.x) - (c.y - b.y) * (b.x - a.x))
 
@@ -21,10 +17,6 @@ static SDL_Renderer* renderer = nullptr;
 
 static list<SDL_Point> global_list;
 static list<SDL_Point>* final_list;
-
-std::binary_semaphore
-        convexSignalMainToThread{0},
-        convexSignalThreadToMain{0};
 
 inline bool operator==(SDL_Point const &a, SDL_Point const &b)
 {
@@ -68,22 +60,55 @@ public:
                 return false;
         }
     };
+    struct PointComparator
+    {
+        bool operator ()(const SDL_Point& a, const SDL_Point& b) const {
+            return a.x < b.x;
+        }
+    };
 
     const list<SDL_Point>* const point_list;
 
     explicit Calculator(list<SDL_Point>& point_list): point_list(&point_list) {
-        point_list.sort(convex::Hull::PointComparator());
+        point_list.sort(PointComparator());
     };
 
-    void calc() {
-        final_list = this->divide(const_cast<list<SDL_Point> *>(this->point_list));
-    }
-
-    /*
     list<SDL_Point>* calc() {
         return this->divide(const_cast<list<SDL_Point> *>(this->point_list));
     }
-     */
+
+    static int hull_start(std::list<SDL_Point>& point_list, PointPosition pos) {
+        int i = 0, index = 0, position = -1;
+        bool save;
+
+        for(auto &it : point_list) {
+            save = false;
+
+            if(position == -1) {
+                position = it.x;
+            }
+
+            switch (pos) {
+                case LEFT:
+                    if(position > it.x)
+                        save = true;
+                    break;
+                case RIGHT:
+                    if(position < it.x)
+                        save = true;
+                    break;
+            }
+
+            if(save) {
+                position = it.x;
+                index = i;
+            }
+
+            i++;
+        }
+
+        return index;
+    }
 
     list<SDL_Point>* divide(list<SDL_Point>* points) const {
         if (points->size() <= 3) {
@@ -125,8 +150,8 @@ public:
         std::list<SDL_Point> rm_left_hull;
         std::list<SDL_Point> rm_right_hull;
 
-        std::advance(left_hull_start, convex::Hull::hull_start(left_hull, convex::Hull::MOST_RIGHT));
-        std::advance(right_hull_start, convex::Hull::hull_start(right_hull, convex::Hull::MOST_LEFT));
+        std::advance(left_hull_start, hull_start(left_hull, RIGHT));
+        std::advance(right_hull_start, hull_start(right_hull, LEFT));
 
         auto cp_left_hull_start = left_hull_start;
         auto cp_right_hull_start = right_hull_start;
@@ -218,6 +243,9 @@ public:
             if(*upper_tangent_right != rm_p && *lower_tangent_right != rm_p)
                 right_hull.remove(rm_p);
 
+        list->insert(list->end(), left_hull.begin(), left_hull.end());
+        list->insert(list->end(), right_hull.begin(), right_hull.end());
+        /*
         left_hull_start = left_hull.begin();
 
         while(*left_hull_start != *lower_tangent_left)
@@ -255,8 +283,6 @@ public:
             else
                 right_hull_start++;
         }
-
-        /*
 
         while(*left_hull_start != *upper_tangent_left) {
             list->insert(list->end(), *left_hull_start);
@@ -511,26 +537,6 @@ public:
     }
 };
 
-bool comparePoints(SDL_Point a, SDL_Point b) {
-    if(a.x == b.x && a.y == b.y)
-        return true;
-
-    return false;
-}
-
-void calculator_t(list<SDL_Point> init_list) {
-    convexSignalMainToThread.acquire();
-    auto c = Calculator(init_list);
-    //auto c = customLib::HullCalculator(init_list);
-
-    //c.start();
-    c.calc();
-
-
-    //std::this_thread::sleep_for(3s);
-    convexSignalThreadToMain.release();
-}
-
 int main() {
     list<SDL_Point> init_list;
     SDL_Point points [POINTS_COUNT];
@@ -543,49 +549,9 @@ int main() {
         init_list.push_back(point);
     }
 
-    /*
-    init_list.push_back({110, 50});
-    init_list.push_back({150, 70});
-    init_list.push_back({20, 20});
-    init_list.push_back({70, 30});
-    init_list.push_back({50, 20});
-    init_list.push_back({70, 50});
-    init_list.push_back({50, 60});
-    init_list.push_back(make_pair(20, 20));
-    init_list.push_back(make_pair(70, 30));
-    init_list.push_back(make_pair(50, 20));
-    init_list.push_back(make_pair(70, 50));
-    init_list.push_back(make_pair(50, 60));
-    init_list.push_back(make_pair(110, 50));
-    init_list.push_back(make_pair(150, 70));
-    init_list.push_back(make_pair(120, 30));
-    init_list.push_back(make_pair(150, 30));
-    init_list.push_back(make_pair(160, 50));
-    init_list.push_back(make_pair(120, 70));
+    auto c = Calculator(init_list);
 
-    convex::Hull hull(init_list);
-
-    list<SDL_Point>& ans = hull.divide_conquer();
-    for (auto e: ans)
-        cout << e.x << " "
-             << e.y << endl;
-
-    delete &ans;
-     */
-
-    thread t1(calculator_t, init_list);
-
-    /*
-    for(auto p : init_list) {
-        std::cout << p.x << ", " << p.y << std::endl;
-    }
-     */
-
-    convexSignalMainToThread.release();
-
-    convexSignalThreadToMain.acquire();
-
-    //delete final_list;
+    final_list = c.calc();
 
     for(auto p : *final_list) {
         std::cout << p.x << ", " << p.y << std::endl;
@@ -660,8 +626,6 @@ int main() {
         }
     } else
         std::cout << "Failed to init SDL : " << SDL_GetError();
-
-    t1.join();
 
     delete final_list;
 
